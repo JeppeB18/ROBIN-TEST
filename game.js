@@ -118,7 +118,11 @@
     } catch (_) {}
   }
   function playSound(name) {
-    if (!audioCtx || (!audioUnlocked && audioCtx.state === 'suspended')) return;
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function () {});
+    }
+    if (!audioUnlocked && audioCtx.state === 'suspended') return;
     if (name === 'collect') {
       playTone(880, 0.08, 'sine');
       playTone(1320, 0.06, 'sine');
@@ -933,44 +937,90 @@
   function drawHUD() {
     const cfg = getLevelConfig();
     const s = hudScale();
-    const barH = Math.round(44 * s);
-    const pad = Math.round(14 * s);
-    const fSize = Math.round(18 * s);
-    const btnSize = Math.round(36 * s);
+    const barH = Math.round(48 * s);
+    const pad = Math.round(12 * s);
+    const fSize = Math.round(16 * s);
+    const fSizeSmall = Math.round(13 * s);
+    const btnSize = Math.round(38 * s);
+    const pillR = Math.round(14 * s);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const barGrad = ctx.createLinearGradient(0, 0, 0, barH);
+    barGrad.addColorStop(0, 'rgba(20,45,25,0.92)');
+    barGrad.addColorStop(0.5, 'rgba(15,35,18,0.95)');
+    barGrad.addColorStop(1, 'rgba(8,22,10,0.98)');
+    ctx.fillStyle = barGrad;
     ctx.fillRect(0, 0, canvas.width, barH);
-    ctx.fillStyle = '#fff';
-    ctx.font = fSize + 'px sans-serif';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, barH);
+    ctx.lineTo(canvas.width, barH);
+    ctx.stroke();
+    const cy = barH / 2;
+    ctx.font = '600 ' + fSize + 'px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, pad, barH / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.fillText('Level ' + currentLevel, pad + pillR, cy);
+    const levelW = ctx.measureText('Level ' + currentLevel).width;
+    const ballsX = pad + pillR * 2 + levelW + pad * 1.5;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = fSizeSmall + 'px sans-serif';
+    ctx.fillText(ballsInBasket + ' / ' + cfg.ballsRequired, ballsX, cy);
+    const ballIconY = cy - 1;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(ballsX - 18, ballIconY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,215,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     pauseBtnRect.w = btnSize;
     pauseBtnRect.h = btnSize;
     pauseBtnRect.x = canvas.width - btnSize - pad;
     pauseBtnRect.y = (barH - btnSize) / 2;
     const levelTimeRemaining = levelTimeLimit - (Date.now() - levelStartTime) / 1000;
     const secs = Math.max(0, Math.ceil(levelTimeRemaining));
-    ctx.fillStyle = levelTimeRemaining <= 10 ? '#ff6b6b' : '#fff';
+    const timeLow = levelTimeRemaining <= 10;
+    const timerX = pauseBtnRect.x - pad - 50;
     ctx.textAlign = 'right';
-    ctx.fillText(secs + 's', pauseBtnRect.x - 8, barH / 2);
-    if (dog.carried > 0) {
-      ctx.fillStyle = '#fff';
-      ctx.fillText('Carrying: ' + dog.carried, pauseBtnRect.x - 8, barH - 4);
+    ctx.font = '700 ' + Math.round(18 * s) + 'px sans-serif';
+    ctx.fillStyle = timeLow ? '#ff6b6b' : 'rgba(255,255,255,0.95)';
+    ctx.fillText(secs + 's', timerX + 45, cy);
+    if (timeLow) {
+      const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.008);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = 'rgba(255,107,107,0.25)';
+      ctx.beginPath();
+      ctx.rect(timerX, cy - 12, 52, 24);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    if (dog.carried > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = fSizeSmall + 'px sans-serif';
+      ctx.fillText('Carrying: ' + dog.carried, pauseBtnRect.x - 8, barH - 10);
+    }
+    const btnCx = pauseBtnRect.x + btnSize / 2;
+    const btnCy = pauseBtnRect.y + btnSize / 2;
+    const btnR = btnSize / 2 - 3;
+    const btnGrad = ctx.createRadialGradient(btnCx - 4, btnCy - 4, 0, btnCx, btnCy, btnR);
+    btnGrad.addColorStop(0, 'rgba(255,255,255,0.25)');
+    btnGrad.addColorStop(0.6, 'rgba(255,255,255,0.08)');
+    btnGrad.addColorStop(1, 'rgba(255,255,255,0.02)');
+    ctx.fillStyle = btnGrad;
     ctx.beginPath();
-    ctx.arc(pauseBtnRect.x + btnSize / 2, pauseBtnRect.y + btnSize / 2, btnSize / 2 - 2, 0, Math.PI * 2);
+    ctx.arc(btnCx, btnCy, btnR, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     const barW = 4;
-    const barGap = 6;
-    ctx.fillRect(pauseBtnRect.x + btnSize / 2 - barW - barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
-    ctx.fillRect(pauseBtnRect.x + btnSize / 2 + barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
+    const barGap = 7;
+    ctx.fillRect(btnCx - barW - barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
+    ctx.fillRect(btnCx + barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
     ctx.restore();
   }
 
@@ -1220,21 +1270,17 @@
 
   function onPointer(e) {
     e.preventDefault();
+    unlockAudio();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
     if (gamePhase === 'title') {
-      var started = false;
-      function doStart() {
-        if (started) return;
-        started = true;
+      unlockAudio(function () {
         tryFullscreen();
         gamePhase = 'playing';
         currentLevel = 1;
         startLevel();
-      }
-      unlockAudio(doStart);
-      setTimeout(doStart, 800);
+      });
       return;
     }
     if (gamePhase === 'levelComplete') {
@@ -1269,7 +1315,12 @@
 
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', function () { setTimeout(resize, 150); });
-  window.addEventListener('focus', function () { setTimeout(resize, 100); });
+  window.addEventListener('focus', function () {
+    setTimeout(resize, 100);
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function () {});
+    }
+  });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', resize);
   }
