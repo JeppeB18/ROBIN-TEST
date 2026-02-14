@@ -83,5 +83,10 @@
       Open the game, then tap <strong>Share</strong> (square with arrow) → <strong>Add to Home Screen</strong>. The game will appear on your home screen like an app.
     </div>
   </div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
+    }
+  </script>
 </body>
 </html>

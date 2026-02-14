@@ -20,7 +20,7 @@ A top-down web game: guide Zoey the labradoodle around a grassy course to collec
 - Run over **golf balls** to pick them up and take them to the **basket in the center** to drop them off.
 - **10 levels**: each level requires more balls and has less time. Finish all 10 to win.
 - **Red enemies** chase the dog; if they catch you, you drop up to 3 balls and are briefly stunned. Avoid them!
-- **Trees** (cone-shaped conifers) block movement; go around them.
+- **Trees** (cone-shaped conifers) slow you down; go around them to keep your speed.
 - If the **timer** hits zero, the level ends—tap to retry.
 
 ## Play on Your iPhone

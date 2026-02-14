@@ -10,6 +10,7 @@
   const ENEMY_RADIUS = 18;
   const ENEMY_SPEED = 2.1;
   const ENEMY_FLEE_SPEED = 2.8;
+  const TREE_SLOW_FACTOR = 0.18;
   const ENEMY_FLEE_MS = 1200;
   const STUN_DURATION_MS = 1800;
   const HIT_INVULN_MS = 1400;
@@ -32,11 +33,11 @@
 
   const canvas = document.getElementById('gameCanvas');
   const ctx = canvas.getContext('2d');
+  let grassCache = null;
 
   let scale = 1;
   let offsetX = 0;
   let offsetY = 0;
-  let dogImage = null;
 
   const dog = {
     x: DOG_START_X,
@@ -62,18 +63,113 @@
   let lastFrameTime = Date.now();
   let gamePhase = 'title';
   let levelCompleteUntil = 0;
+  let levelCompleteData = { timeRemaining: 0, bestRemaining: 0 };
   let screenShake = 0;
+  let pauseBtnRect = { x: 0, y: 0, w: 44, h: 44 };
 
   const basket = { x: WORLD_W / 2, y: WORLD_H / 2 };
 
+  let audioCtx = null;
+  function initAudio() {
+    if (audioCtx) return;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (_) {}
+  }
+  function playTone(freq, duration, type) {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.frequency.value = freq;
+      osc.type = type || 'sine';
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (_) {}
+  }
+  function playSound(name) {
+    initAudio();
+    if (!audioCtx || audioCtx.state === 'suspended') return;
+    if (name === 'collect') {
+      playTone(880, 0.08, 'sine');
+      playTone(1320, 0.06, 'sine');
+    } else if (name === 'deposit') {
+      playTone(523, 0.1, 'sine');
+      playTone(659, 0.1, 'sine');
+      playTone(784, 0.12, 'sine');
+    } else if (name === 'hit') {
+      playTone(200, 0.15, 'sawtooth');
+      playTone(150, 0.2, 'square');
+    } else if (name === 'levelComplete') {
+      playTone(523, 0.12, 'sine');
+      playTone(659, 0.12, 'sine');
+      playTone(784, 0.12, 'sine');
+      playTone(1047, 0.2, 'sine');
+    } else if (name === 'gameOver') {
+      playTone(200, 0.2, 'sawtooth');
+      playTone(180, 0.25, 'square');
+    } else if (name === 'gameWon') {
+      playTone(523, 0.15, 'sine');
+      playTone(659, 0.15, 'sine');
+      playTone(784, 0.15, 'sine');
+      playTone(1047, 0.2, 'sine');
+      playTone(1319, 0.25, 'sine');
+    }
+  }
+
+  function haptic(type) {
+    if (!navigator.vibrate) return;
+    try {
+      if (type === 'collect') navigator.vibrate(10);
+      else if (type === 'deposit') navigator.vibrate(15);
+      else if (type === 'hit') navigator.vibrate([30, 20, 30]);
+      else if (type === 'levelComplete') navigator.vibrate([20, 30, 20, 30]);
+      else if (type === 'gameOver') navigator.vibrate([50, 30, 50]);
+      else if (type === 'gameWon') navigator.vibrate([20, 20, 20, 40, 40]);
+    } catch (_) {}
+  }
+
+  const STORAGE_KEY = 'zoeyGolfScores';
+  function loadScores() {
+    try {
+      const s = localStorage.getItem(STORAGE_KEY);
+      return s ? JSON.parse(s) : { bestTimeRemaining: {}, totalWins: 0 };
+    } catch (_) { return { bestTimeRemaining: {}, totalWins: 0 }; }
+  }
+  function saveScore(level, timeRemaining) {
+    const scores = loadScores();
+    const prev = scores.bestTimeRemaining[level] || 0;
+    if (timeRemaining > prev) {
+      scores.bestTimeRemaining[level] = timeRemaining;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(scores)); } catch (_) {}
+    }
+  }
+  function saveWin() {
+    const scores = loadScores();
+    scores.totalWins = (scores.totalWins || 0) + 1;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(scores)); } catch (_) {}
+  }
+
   function resize() {
-    const w = window.innerWidth || document.documentElement.clientWidth;
-    const h = window.innerHeight || document.documentElement.clientHeight || window.visualViewport?.height;
-    canvas.width = w;
-    canvas.height = h;
-    scale = Math.min(w / WORLD_W, h / WORLD_H);
-    offsetX = (w - WORLD_W * scale) / 2;
-    offsetY = (h - WORLD_H * scale) / 2;
+    const vp = window.visualViewport;
+    const w = vp ? vp.width : (window.innerWidth || document.documentElement.clientWidth);
+    const h = vp ? vp.height : (window.innerHeight || document.documentElement.clientHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pw = Math.floor(w * dpr);
+    const ph = Math.floor(h * dpr);
+    if (canvas.width !== pw || canvas.height !== ph) {
+      canvas.width = pw;
+      canvas.height = ph;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+    }
+    scale = Math.min(pw / WORLD_W, ph / WORLD_H);
+    offsetX = (pw - WORLD_W * scale) / 2;
+    offsetY = (ph - WORLD_H * scale) / 2;
   }
 
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -83,7 +179,9 @@
     const rect = canvas.getBoundingClientRect();
     const sx = clientX - rect.left;
     const sy = clientY - rect.top;
-    return { x: (sx - offsetX) / scale, y: (sy - offsetY) / scale };
+    const px = (sx / rect.width) * canvas.width;
+    const py = (sy / rect.height) * canvas.height;
+    return { x: (px - offsetX) / scale, y: (py - offsetY) / scale };
   }
 
   function dist(x1, y1, x2, y2) {
@@ -285,20 +383,13 @@
     const d = Math.hypot(dx, dy);
     if (d < 2) return;
     dog.angle = Math.atan2(dy, dx);
-    const step = Math.min(DOG_SPEED, d);
+    const inTree = circleVsTree(dog.x, dog.y, DOG_RADIUS);
+    const speedMult = inTree ? TREE_SLOW_FACTOR : 1;
+    const step = Math.min(DOG_SPEED * speedMult, d);
     const nx = dog.x + (dx / d) * step;
     const ny = dog.y + (dy / d) * step;
-    if (!circleVsTree(nx, ny, DOG_RADIUS)) {
-      dog.x = nx;
-      dog.y = ny;
-    } else {
-      const nxOnly = dog.x + (dx / d) * step;
-      if (!circleVsTree(nxOnly, dog.y, DOG_RADIUS)) dog.x = nxOnly;
-      const ny2 = dog.y + (dy / d) * step;
-      if (!circleVsTree(dog.x, ny2, DOG_RADIUS)) dog.y = ny2;
-    }
-    dog.x = Math.max(DOG_RADIUS, Math.min(WORLD_W - DOG_RADIUS, dog.x));
-    dog.y = Math.max(DOG_RADIUS, Math.min(WORLD_H - DOG_RADIUS, dog.y));
+    dog.x = Math.max(DOG_RADIUS, Math.min(WORLD_W - DOG_RADIUS, nx));
+    dog.y = Math.max(DOG_RADIUS, Math.min(WORLD_H - DOG_RADIUS, ny));
   }
 
   function updateEnemies() {
@@ -320,15 +411,10 @@
       }
       e.vx = vx;
       e.vy = vy;
-      let nx = e.x + e.vx;
-      let ny = e.y + e.vy;
-      if (!circleVsTree(nx, ny, ENEMY_RADIUS)) {
-        e.x = nx;
-        e.y = ny;
-      } else {
-        if (!circleVsTree(e.x + e.vx, e.y, ENEMY_RADIUS)) e.x += e.vx;
-        if (!circleVsTree(e.x, e.y + e.vy, ENEMY_RADIUS)) e.y += e.vy;
-      }
+      const inTree = circleVsTree(e.x, e.y, ENEMY_RADIUS);
+      const speedMult = inTree ? TREE_SLOW_FACTOR : 1;
+      e.x += e.vx * speedMult;
+      e.y += e.vy * speedMult;
       e.x = Math.max(ENEMY_RADIUS, Math.min(WORLD_W - ENEMY_RADIUS, e.x));
       e.y = Math.max(ENEMY_RADIUS, Math.min(WORLD_H - ENEMY_RADIUS, e.y));
       if (now < dog.invulnerableUntil) return;
@@ -336,6 +422,8 @@
         dog.stunUntil = now + STUN_DURATION_MS;
         dog.invulnerableUntil = now + HIT_INVULN_MS;
         screenShake = 12;
+        playSound('hit');
+        haptic('hit');
         spawnParticles(dog.x, dog.y, 15, '#ff6b6b');
         spawnParticles(dog.x, dog.y, 10, '#ffaa00');
         const retreatDist = DOG_RADIUS + ENEMY_RADIUS + 35;
@@ -392,10 +480,8 @@
       ctx.save();
       ctx.globalAlpha = p.life;
       ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 4;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+      ctx.arc(Math.floor(p.x), Math.floor(p.y), p.r * p.life, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     });
@@ -409,6 +495,8 @@
         dog.carried++;
         spawnParticles(b.x, b.y, 8, '#ffd700');
         spawnParticles(b.x, b.y, 6, '#fff');
+        playSound('collect');
+        haptic('collect');
       }
     });
   }
@@ -420,46 +508,67 @@
       spawnParticles(basket.x, basket.y, dog.carried * 3, '#4caf50');
       spawnParticles(basket.x, basket.y, dog.carried * 2, '#ffd700');
       dog.carried = 0;
+      playSound('deposit');
+      haptic('deposit');
       const cfg = getLevelConfig();
       if (ballsInBasket >= cfg.ballsRequired) {
+        const timeRem = Math.max(0, levelTimeLimit - (Date.now() - levelStartTime) / 1000);
+        const prevBest = loadScores().bestTimeRemaining[currentLevel] || 0;
+        levelCompleteData = { timeRemaining: timeRem, previousBest: prevBest };
+        saveScore(currentLevel, timeRem);
         levelRetries[currentLevel - 1] = 0;
         gamePhase = 'levelComplete';
         levelCompleteUntil = Date.now() + 2200;
         spawnParticles(basket.x, basket.y, 30, '#4caf50');
+        playSound('levelComplete');
+        haptic('levelComplete');
+      }
+    }
+  }
+
+  function initGrassCache() {
+    if (grassCache) return;
+    grassCache = document.createElement('canvas');
+    grassCache.width = WORLD_W;
+    grassCache.height = WORLD_H;
+    const g = grassCache.getContext('2d');
+    const grad = g.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 100, WORLD_W / 2, WORLD_H / 2, WORLD_H);
+    grad.addColorStop(0, '#3d7a35');
+    grad.addColorStop(0.5, '#2d5a27');
+    grad.addColorStop(1, '#1d4a17');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, WORLD_W, WORLD_H);
+    const green1 = 'rgba(45, 90, 39, 0.35)';
+    const tile = 25;
+    g.fillStyle = green1;
+    for (let gy = 0; gy < WORLD_H + tile; gy += tile) {
+      for (let gx = 0; gx < WORLD_W + tile; gx += tile) {
+        if ((gx / tile + gy / tile) % 2 === 0) {
+          g.fillRect(gx, gy, tile, tile);
+        }
       }
     }
   }
 
   function drawGrass() {
-    const grad = ctx.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 100, WORLD_W / 2, WORLD_H / 2, WORLD_H);
-    grad.addColorStop(0, '#3d7a35');
-    grad.addColorStop(0.5, '#2d5a27');
-    grad.addColorStop(1, '#1d4a17');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-    const green1 = 'rgba(45, 90, 39, 0.3)';
-    const green2 = 'rgba(61, 122, 53, 0.3)';
-    const tile = 25;
-    for (let gy = 0; gy < WORLD_H + tile; gy += tile) {
-      for (let gx = 0; gx < WORLD_W + tile; gx += tile) {
-        if ((gx / tile + gy / tile) % 2 === 0) {
-          ctx.fillStyle = green1;
-          ctx.fillRect(gx, gy, tile, tile);
-        }
-      }
-    }
+    if (!grassCache) initGrassCache();
+    ctx.drawImage(grassCache, 0, 0);
   }
 
   function drawConiferTree(t) {
     const { x, y, coneW, coneHeight } = t;
     const trunkH = 14;
     const trunkW = 8;
+    const tx = Math.floor(x - trunkW / 2);
+    const ty = Math.floor(y + coneHeight / 2);
     ctx.fillStyle = '#3e2723';
-    ctx.fillRect(x - trunkW / 2, y + coneHeight / 2, trunkW, trunkH);
+    ctx.fillRect(tx, ty, trunkW, trunkH);
     const layers = 5;
-    const dark = '#0d3d0d';
-    const mid = '#1a5c1a';
-    const light = '#2d7a2d';
+    const dark = '#0a2e0a';
+    const mid = '#0f4a0f';
+    const light = '#1a6b1a';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 2;
     for (let i = layers; i >= 0; i--) {
       const t0 = i / layers;
       const t1 = (i + 1) / layers;
@@ -469,21 +578,19 @@
       const w1 = coneW * (0.2 + 0.8 * t1);
       ctx.fillStyle = i === 0 ? light : i < 2 ? mid : dark;
       ctx.beginPath();
-      ctx.moveTo(x - w0, y0);
-      ctx.lineTo(x + w0, y0);
-      ctx.lineTo(x + w1, y1);
-      ctx.lineTo(x - w1, y1);
+      ctx.moveTo(Math.floor(x - w0), Math.floor(y0));
+      ctx.lineTo(Math.floor(x + w0), Math.floor(y0));
+      ctx.lineTo(Math.floor(x + w1), Math.floor(y1));
+      ctx.lineTo(Math.floor(x - w1), Math.floor(y1));
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-      ctx.lineWidth = 2;
       ctx.stroke();
     }
     ctx.fillStyle = 'rgba(255,255,255,0.28)';
     ctx.beginPath();
-    ctx.moveTo(x - coneW * 0.3, y - coneHeight * 0.2);
-    ctx.lineTo(x + coneW * 0.2, y + coneHeight * 0.3);
-    ctx.lineTo(x - coneW * 0.2, y + coneHeight * 0.3);
+    ctx.moveTo(Math.floor(x - coneW * 0.3), Math.floor(y - coneHeight * 0.2));
+    ctx.lineTo(Math.floor(x + coneW * 0.2), Math.floor(y + coneHeight * 0.3));
+    ctx.lineTo(Math.floor(x - coneW * 0.2), Math.floor(y + coneHeight * 0.3));
     ctx.closePath();
     ctx.fill();
   }
@@ -493,9 +600,8 @@
   }
 
   function drawBasket() {
-    const bx = basket.x;
-    const by = basket.y;
-    ctx.save();
+    const bx = Math.floor(basket.x);
+    const by = Math.floor(basket.y);
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
     ctx.ellipse(bx, by + 4, BASKET_RADIUS + 2, (BASKET_RADIUS + 2) * 0.7, 0, 0, Math.PI * 2);
@@ -511,43 +617,41 @@
     ctx.strokeStyle = '#3e2723';
     ctx.lineWidth = 3;
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 2;
     ctx.fillText('Drop here', bx, by);
-    ctx.restore();
   }
 
   function drawBalls() {
     const t = Date.now() * 0.003;
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
     balls.forEach(b => {
       if (b.collected) return;
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.beginPath();
-      ctx.arc(b.x, b.y + 2, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.arc(Math.floor(b.x), Math.floor(b.y + 2), BALL_RADIUS, 0, Math.PI * 2);
       ctx.fill();
+    });
+    const visibleBalls = balls.filter(b => !b.collected);
+    visibleBalls.forEach(b => {
       const pulse = 0.95 + 0.05 * Math.sin(t + b.x * 0.1);
       const r = BALL_RADIUS * pulse;
-      ctx.shadowColor = 'rgba(255,255,255,0.6)';
-      ctx.shadowBlur = 6;
       const grad = ctx.createRadialGradient(b.x - 2, b.y - 2, 1, b.x, b.y, r);
       grad.addColorStop(0, '#fff');
       grad.addColorStop(0.7, '#f5f5f5');
       grad.addColorStop(1, '#e0e0e0');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+      ctx.arc(Math.floor(b.x), Math.floor(b.y), r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
-      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    });
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    visibleBalls.forEach(b => {
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2 + b.x * 0.1;
         ctx.beginPath();
-        ctx.arc(b.x + Math.cos(a) * 4, b.y + Math.sin(a) * 4, 1.5, 0, Math.PI * 2);
+        ctx.arc(Math.floor(b.x + Math.cos(a) * 4), Math.floor(b.y + Math.sin(a) * 4), 1.5, 0, Math.PI * 2);
         ctx.fill();
       }
     });
@@ -555,98 +659,88 @@
 
   function drawEnemies() {
     const now = Date.now();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
     enemies.forEach(e => {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
       ctx.beginPath();
-      ctx.arc(e.x, e.y + 3, ENEMY_RADIUS, 0, Math.PI * 2);
+      ctx.arc(Math.floor(e.x), Math.floor(e.y + 3), ENEMY_RADIUS, 0, Math.PI * 2);
       ctx.fill();
+    });
+    ctx.strokeStyle = '#7f0000';
+    ctx.lineWidth = 2;
+    enemies.forEach(e => {
       const pulse = 0.9 + 0.1 * Math.sin(now * 0.005);
       const r = ENEMY_RADIUS * pulse;
-      ctx.shadowColor = 'rgba(211,47,47,0.8)';
-      ctx.shadowBlur = 10;
       const grad = ctx.createRadialGradient(e.x - 4, e.y - 4, 2, e.x, e.y, r);
       grad.addColorStop(0, '#ff5252');
       grad.addColorStop(0.6, '#d32f2f');
       grad.addColorStop(1, '#b71c1c');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+      ctx.arc(Math.floor(e.x), Math.floor(e.y), r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#7f0000';
-      ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0,0,0,0.7)';
-      ctx.shadowBlur = 3;
-      ctx.fillText('!', e.x, e.y);
-      ctx.shadowBlur = 0;
     });
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    enemies.forEach(e => ctx.fillText('!', Math.floor(e.x), Math.floor(e.y)));
   }
 
   function drawDog() {
     const stun = Date.now() < dog.stunUntil;
-    if (stun) {
-      ctx.globalAlpha = 0.5 + 0.25 * Math.sin(Date.now() * 0.02);
-    }
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    if (stun) ctx.globalAlpha = 0.5 + 0.25 * Math.sin(Date.now() * 0.02);
+    const r = DOG_RADIUS * 1.15;
+    const dx = Math.floor(dog.x);
+    const dy = Math.floor(dog.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(dog.x, dog.y + 4, DOG_RADIUS * 1.2, DOG_RADIUS * 0.6, 0, 0, Math.PI * 2);
+    ctx.ellipse(dx, dy + 3, r, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(dx, dy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(dx, dy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d4a574';
+    ctx.beginPath();
+    ctx.ellipse(dx, Math.floor(dy + r * 0.4), r * 0.35, r * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2d2d2d';
+    ctx.beginPath();
+    ctx.arc(Math.floor(dx - r * 0.25), Math.floor(dy - r * 0.15), r * 0.12, 0, Math.PI * 2);
+    ctx.arc(Math.floor(dx + r * 0.25), Math.floor(dy - r * 0.15), r * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.arc(dx, Math.floor(dy + r * 0.1), r * 0.15, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    ctx.save();
-    ctx.translate(dog.x, dog.y);
-    ctx.rotate(dog.angle);
-    if (dogImage && dogImage.complete && dogImage.naturalWidth) {
-      const w = DOG_RADIUS * 2.4;
-      const h = DOG_RADIUS * 2.2;
-      ctx.shadowColor = 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetY = 2;
-      ctx.drawImage(dogImage, -w / 2, -h / 2, w, h);
-    } else {
-      ctx.shadowColor = 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetY = 2;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, DOG_RADIUS * 1.2, DOG_RADIUS, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(-DOG_RADIUS * 0.9, -DOG_RADIUS * 0.5, 9, 11, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(-DOG_RADIUS * 0.9, DOG_RADIUS * 0.5, 9, 11, 0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#6b5b4f';
-      ctx.fillRect(-6, -4, 12, 8);
-    }
-    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(dx, dy, r, 0, Math.PI * 2);
+    ctx.stroke();
     if (stun) ctx.globalAlpha = 1;
     if (dog.carried > 0) {
-      const bounce = 1 + 0.1 * Math.sin(Date.now() * 0.01);
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      const bounce = 1 + 0.08 * Math.sin(Date.now() * 0.01);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
       ctx.beginPath();
-      ctx.arc(dog.x, dog.y - DOG_RADIUS - 8, 8, 0, Math.PI * 2);
+      ctx.arc(dx, Math.floor(dy - DOG_RADIUS - 9), 9, 0, Math.PI * 2);
       ctx.fill();
-      ctx.shadowColor = 'rgba(255,255,255,0.8)';
-      ctx.shadowBlur = 4;
       ctx.fillStyle = '#ffd700';
       ctx.beginPath();
-      ctx.arc(dog.x, dog.y - DOG_RADIUS - 10, 7 * bounce, 0, Math.PI * 2);
+      ctx.arc(dx, Math.floor(dy - DOG_RADIUS - 10), 7 * bounce, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
       ctx.fillStyle = '#000';
       ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dog.carried, dog.x, dog.y - DOG_RADIUS - 10);
+      ctx.fillText(dog.carried, dx, Math.floor(dy - DOG_RADIUS - 10));
     }
   }
 
@@ -665,16 +759,58 @@
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, offsetX + pad, offsetY + barH / 2);
+    const btnSize = Math.round(36 * s);
+    pauseBtnRect.w = btnSize;
+    pauseBtnRect.h = btnSize;
+    pauseBtnRect.x = offsetX + WORLD_W * scale - btnSize - pad;
     const levelTimeRemaining = levelTimeLimit - (Date.now() - levelStartTime) / 1000;
     const secs = Math.max(0, Math.ceil(levelTimeRemaining));
-    ctx.fillStyle = levelTimeRemaining <= 10 ? '#ffcdd2' : '#fff';
+    ctx.fillStyle = levelTimeRemaining <= 10 ? '#ff6b6b' : '#fff';
     ctx.textAlign = 'right';
-    ctx.fillText(secs + 's', offsetX + WORLD_W * scale - pad, offsetY + barH / 2);
+    ctx.fillText(secs + 's', pauseBtnRect.x - 8, offsetY + barH / 2);
     if (dog.carried > 0) {
       ctx.fillStyle = '#fff';
-      ctx.fillText('Carrying: ' + dog.carried, offsetX + WORLD_W * scale - pad, offsetY + barH - 4);
+      ctx.fillText('Carrying: ' + dog.carried, pauseBtnRect.x - 8, offsetY + barH - 4);
     }
+    pauseBtnRect.y = offsetY + (barH - btnSize) / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.arc(pauseBtnRect.x + btnSize / 2, pauseBtnRect.y + btnSize / 2, btnSize / 2 - 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    const barW = 4;
+    const barGap = 6;
+    ctx.fillRect(pauseBtnRect.x + btnSize / 2 - barW - barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
+    ctx.fillRect(pauseBtnRect.x + btnSize / 2 + barGap / 2, pauseBtnRect.y + 10, barW, btnSize - 20);
     ctx.restore();
+  }
+
+  function drawPauseOverlay() {
+    const s = hudScale();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.round(32 * s) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Paused', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = Math.round(18 * s) + 'px sans-serif';
+    ctx.fillText('Tap to resume', canvas.width / 2, canvas.height / 2 + 25);
+    ctx.restore();
+  }
+
+  function isInPauseButton(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const px = (clientX - rect.left) / rect.width * canvas.width;
+    const py = (clientY - rect.top) / rect.height * canvas.height;
+    const r = pauseBtnRect;
+    return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
   }
 
   function drawTitle() {
@@ -702,7 +838,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#c8e6c9';
+    ctx.fillStyle = '#81c784';
     ctx.font = 'bold ' + Math.round(28 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -710,6 +846,13 @@
     ctx.fillStyle = '#fff';
     ctx.font = Math.round(16 * s) + 'px sans-serif';
     ctx.fillText(currentLevel < NUM_LEVELS ? 'Next level in 2 sec...' : 'You won!', canvas.width / 2, canvas.height / 2 + 15);
+    const isNewBest = levelCompleteData.previousBest === 0 || levelCompleteData.timeRemaining >= levelCompleteData.previousBest;
+    ctx.font = Math.round(14 * s) + 'px sans-serif';
+    ctx.fillText(Math.round(levelCompleteData.timeRemaining) + 's left', canvas.width / 2, canvas.height / 2 + 45);
+    if (isNewBest) {
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText('New best!', canvas.width / 2, canvas.height / 2 + 65);
+    }
     ctx.restore();
   }
 
@@ -719,7 +862,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ffcdd2';
+    ctx.fillStyle = '#ff6b6b';
     ctx.font = 'bold ' + Math.round(32 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -736,7 +879,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#c8e6c9';
+    ctx.fillStyle = '#81c784';
     ctx.font = 'bold ' + Math.round(36 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -744,7 +887,9 @@
     ctx.fillStyle = '#fff';
     ctx.font = Math.round(20 * s) + 'px sans-serif';
     ctx.fillText('All 10 levels complete.', canvas.width / 2, canvas.height / 2);
-    ctx.fillText('Tap to play again', canvas.width / 2, canvas.height / 2 + 45);
+    const wins = loadScores().totalWins || 0;
+    ctx.fillText('Total wins: ' + wins, canvas.width / 2, canvas.height / 2 + 30);
+    ctx.fillText('Tap to play again', canvas.width / 2, canvas.height / 2 + 55);
     ctx.restore();
   }
 
@@ -772,6 +917,7 @@
     else if (gamePhase === 'levelComplete') drawLevelComplete();
     else if (gamePhase === 'gameOver') drawGameOver();
     else if (gamePhase === 'gameWon') drawGameWon();
+    else if (gamePhase === 'paused') drawPauseOverlay();
   }
 
   function update() {
@@ -783,6 +929,9 @@
       lastFrameTime = Date.now();
       if (Date.now() >= levelCompleteUntil) {
         if (currentLevel >= NUM_LEVELS) {
+          saveWin();
+          playSound('gameWon');
+          haptic('gameWon');
           gamePhase = 'gameWon';
         } else {
           currentLevel++;
@@ -793,6 +942,12 @@
     }
     if (gamePhase === 'gameOver' || gamePhase === 'gameWon') {
       lastFrameTime = Date.now();
+      return;
+    }
+    if (gamePhase === 'paused') {
+      const now = Date.now();
+      levelStartTime += now - lastFrameTime;
+      lastFrameTime = now;
       return;
     }
 
@@ -807,6 +962,8 @@
     const levelTimeRemaining = levelTimeLimit - (Date.now() - levelStartTime) / 1000;
     if (levelTimeRemaining <= 0) {
       gamePhase = 'gameOver';
+      playSound('gameOver');
+      haptic('gameOver');
       return;
     }
 
@@ -842,6 +999,8 @@
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
     if (gamePhase === 'title') {
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
       tryFullscreen();
       gamePhase = 'playing';
       currentLevel = 1;
@@ -859,7 +1018,18 @@
       startLevel();
       return;
     }
-    if (gamePhase === 'playing') setTarget(clientX, clientY);
+    if (gamePhase === 'paused') {
+      gamePhase = 'playing';
+      return;
+    }
+    if (gamePhase === 'playing') {
+      if (isInPauseButton(clientX, clientY)) {
+        gamePhase = 'paused';
+      } else {
+        setTarget(clientX, clientY);
+      }
+      return;
+    }
   }
 
   canvas.addEventListener('touchstart', onPointer, { passive: false });
@@ -871,9 +1041,6 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', resize);
   }
-
-  dogImage = new Image();
-  dogImage.src = 'assets/dog.png';
 
   resize();
   gamePhase = 'title';
