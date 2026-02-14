@@ -549,7 +549,7 @@
     ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Labradoodle Golf', canvas.width / 2, canvas.height / 2 - 50);
+    ctx.fillText("Zoey's Golf Adventures", canvas.width / 2, canvas.height / 2 - 50);
     ctx.font = '18px sans-serif';
     ctx.fillText('Collect balls. Drop in basket. Avoid the enemies!', canvas.width / 2, canvas.height / 2 - 10);
     ctx.fillText('10 levels. Tap to start.', canvas.width / 2, canvas.height / 2 + 30);

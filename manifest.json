@@ -1,7 +1,7 @@
 {
-  "name": "Labradoodle Golf",
-  "short_name": "Labradoodle Golf",
-  "description": "Collect golf balls with your labradoodle. 10 levels, enemies, timer.",
+  "name": "Zoey's Golf Adventures",
+  "short_name": "Zoey's Golf",
+  "description": "Collect golf balls with Zoey the labradoodle. 10 levels, enemies, timer.",
   "start_url": "./game.html",
   "display": "standalone",
   "orientation": "any",

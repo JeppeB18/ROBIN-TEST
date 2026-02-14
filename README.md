@@ -1,6 +1,6 @@
-# Labradoodle Golf
+# Zoey's Golf Adventures
 
-A top-down web game: guide a black labradoodle around a grassy course to collect golf balls and deliver them to the basket. Complete 10 levels, each with a timer and more obstacles—including annoying enemies that chase you and make you drop balls!
+A top-down web game: guide Zoey the labradoodle around a grassy course to collect golf balls and deliver them to the basket. Complete 10 levels, each with a timer and more obstacles—including annoying enemies that chase you and make you drop balls!
 
 ## How to Run Locally
 
@@ -29,7 +29,7 @@ A top-down web game: guide a black labradoodle around a grassy course to collect
 2. Open the game URL in **Safari** on your iPhone.
 3. Tap the **Share** button (square with arrow).
 4. Choose **Add to Home Screen**.
-5. Name it (e.g. “Labradoodle Golf”) and tap **Add**.
+5. Name it (e.g. “Zoey's Golf Adventures”) and tap **Add**.
 
 The game will appear on your home screen and open full-screen like an app.
 
