@@ -188,10 +188,7 @@
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
     }
-    const useCover = isMobile;
-    scale = useCover
-      ? Math.max(pw / WORLD_W, ph / WORLD_H)
-      : Math.min(pw / WORLD_W, ph / WORLD_H);
+    scale = Math.min(pw / WORLD_W, ph / WORLD_H);
     offsetX = (pw - WORLD_W * scale) / 2;
     offsetY = (ph - WORLD_H * scale) / 2;
   }
@@ -885,6 +882,18 @@
     ctx.arc(Math.floor(dx + r * 0.3), Math.floor(dy - r * 0.14), 1.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+    const earGrad = ctx.createRadialGradient(dx - r * 0.5, dy - r * 0.8, 0, dx, dy - r * 0.5, r * 0.6);
+    earGrad.addColorStop(0, '#2a2520');
+    earGrad.addColorStop(0.4, '#1a1612');
+    earGrad.addColorStop(0.8, '#0d0a08');
+    earGrad.addColorStop(1, '#050403');
+    ctx.fillStyle = earGrad;
+    ctx.beginPath();
+    ctx.ellipse(dx - r * 0.65, dy - r * 0.5, r * 0.35, r * 0.55, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(dx + r * 0.65, dy - r * 0.5, r * 0.35, r * 0.55, 0.25, 0, Math.PI * 2);
+    ctx.fill();
     ctx.strokeStyle = '#b8c4c4';
     ctx.lineWidth = 5;
     ctx.beginPath();
@@ -927,6 +936,7 @@
     const barH = Math.round(44 * s);
     const pad = Math.round(14 * s);
     const fSize = Math.round(18 * s);
+    const btnSize = Math.round(36 * s);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -935,21 +945,20 @@
     ctx.font = fSize + 'px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, offsetX + pad, offsetY + barH / 2);
-    const btnSize = Math.round(36 * s);
+    ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, pad, barH / 2);
     pauseBtnRect.w = btnSize;
     pauseBtnRect.h = btnSize;
-    pauseBtnRect.x = offsetX + WORLD_W * scale - btnSize - pad;
+    pauseBtnRect.x = canvas.width - btnSize - pad;
+    pauseBtnRect.y = (barH - btnSize) / 2;
     const levelTimeRemaining = levelTimeLimit - (Date.now() - levelStartTime) / 1000;
     const secs = Math.max(0, Math.ceil(levelTimeRemaining));
     ctx.fillStyle = levelTimeRemaining <= 10 ? '#ff6b6b' : '#fff';
     ctx.textAlign = 'right';
-    ctx.fillText(secs + 's', pauseBtnRect.x - 8, offsetY + barH / 2);
+    ctx.fillText(secs + 's', pauseBtnRect.x - 8, barH / 2);
     if (dog.carried > 0) {
       ctx.fillStyle = '#fff';
-      ctx.fillText('Carrying: ' + dog.carried, pauseBtnRect.x - 8, offsetY + barH - 4);
+      ctx.fillText('Carrying: ' + dog.carried, pauseBtnRect.x - 8, barH - 4);
     }
-    pauseBtnRect.y = offsetY + (barH - btnSize) / 2;
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
     ctx.beginPath();
     ctx.arc(pauseBtnRect.x + btnSize / 2, pauseBtnRect.y + btnSize / 2, btnSize / 2 - 2, 0, Math.PI * 2);
