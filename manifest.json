@@ -1,0 +1,18 @@
+{
+  "name": "Labradoodle Golf",
+  "short_name": "Labradoodle Golf",
+  "description": "Collect golf balls with your labradoodle. 10 levels, enemies, timer.",
+  "start_url": "./game.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#2d5a27",
+  "theme_color": "#2d5a27",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

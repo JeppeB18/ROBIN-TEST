@@ -1,0 +1,37 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #2d5a27;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #2d5a27;
+}
+
+@media (orientation: landscape) {
+  #gameCanvas {
+    object-fit: contain;
+  }
+}
+
+@media (orientation: portrait) {
+  #gameCanvas {
+    object-fit: contain;
+  }
+}
