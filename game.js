@@ -65,14 +65,17 @@
   const basket = { x: WORLD_W / 2, y: WORLD_H / 2 };
 
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = document.documentElement.clientWidth || window.innerWidth;
+    const h = document.documentElement.clientHeight || window.innerHeight;
     canvas.width = w;
     canvas.height = h;
     scale = Math.min(w / WORLD_W, h / WORLD_H);
     offsetX = (w - WORLD_W * scale) / 2;
     offsetY = (h - WORLD_H * scale) / 2;
   }
+
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const hudScale = () => isMobile ? Math.max(1, Math.min(window.innerWidth / 400, 1.4)) : 1;
 
   function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
@@ -392,12 +395,12 @@
     const { x, y, coneW, coneHeight } = t;
     const trunkH = 14;
     const trunkW = 8;
-    ctx.fillStyle = '#5d4037';
+    ctx.fillStyle = '#3e2723';
     ctx.fillRect(x - trunkW / 2, y + coneHeight / 2, trunkW, trunkH);
     const layers = 5;
-    const dark = '#1b5e20';
-    const mid = '#2e7d32';
-    const light = '#388e3c';
+    const dark = '#0d3d0d';
+    const mid = '#1a5c1a';
+    const light = '#2d7a2d';
     for (let i = layers; i >= 0; i--) {
       const t0 = i / layers;
       const t1 = (i + 1) / layers;
@@ -413,8 +416,11 @@
       ctx.lineTo(x - w1, y1);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
     ctx.beginPath();
     ctx.moveTo(x - coneW * 0.3, y - coneHeight * 0.2);
     ctx.lineTo(x + coneW * 0.2, y + coneHeight * 0.3);
@@ -518,88 +524,97 @@
 
   function drawHUD() {
     const cfg = getLevelConfig();
+    const s = hudScale();
+    const barH = Math.round(44 * s);
+    const pad = Math.round(14 * s);
+    const fSize = Math.round(18 * s);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, canvas.width, 40);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 0, canvas.width, barH);
     ctx.fillStyle = '#fff';
-    ctx.font = '18px sans-serif';
+    ctx.font = fSize + 'px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, offsetX + 12, offsetY + 20);
+    ctx.fillText('Level ' + currentLevel + '  Balls: ' + ballsInBasket + ' / ' + cfg.ballsRequired, offsetX + pad, offsetY + barH / 2);
     const levelTimeRemaining = levelTimeLimit - (Date.now() - levelStartTime) / 1000;
     const secs = Math.max(0, Math.ceil(levelTimeRemaining));
     ctx.fillStyle = levelTimeRemaining <= 10 ? '#ffcdd2' : '#fff';
     ctx.textAlign = 'right';
-    ctx.fillText(secs + 's', offsetX + WORLD_W * scale - 12, offsetY + 20);
+    ctx.fillText(secs + 's', offsetX + WORLD_W * scale - pad, offsetY + barH / 2);
     if (dog.carried > 0) {
-      ctx.textAlign = 'right';
       ctx.fillStyle = '#fff';
-      ctx.fillText('Carrying: ' + dog.carried, offsetX + WORLD_W * scale - 12, offsetY + 38);
+      ctx.fillText('Carrying: ' + dog.carried, offsetX + WORLD_W * scale - pad, offsetY + barH - 4);
     }
     ctx.restore();
   }
 
   function drawTitle() {
+    const s = hudScale();
+    const titleSize = Math.round(36 * s);
+    const bodySize = Math.round(18 * s);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = 'bold ' + titleSize + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText("Zoey's Golf Adventures", canvas.width / 2, canvas.height / 2 - 50);
-    ctx.font = '18px sans-serif';
+    ctx.font = bodySize + 'px sans-serif';
     ctx.fillText('Collect balls. Drop in basket. Avoid the enemies!', canvas.width / 2, canvas.height / 2 - 10);
     ctx.fillText('10 levels. Tap to start.', canvas.width / 2, canvas.height / 2 + 30);
     ctx.restore();
   }
 
   function drawLevelComplete() {
+    const s = hudScale();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#c8e6c9';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold ' + Math.round(28 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('Level ' + currentLevel + ' complete!', canvas.width / 2, canvas.height / 2 - 30);
     ctx.fillStyle = '#fff';
-    ctx.font = '16px sans-serif';
+    ctx.font = Math.round(16 * s) + 'px sans-serif';
     ctx.fillText(currentLevel < NUM_LEVELS ? 'Next level in 2 sec...' : 'You won!', canvas.width / 2, canvas.height / 2 + 15);
     ctx.restore();
   }
 
   function drawGameOver() {
+    const s = hudScale();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#ffcdd2';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = 'bold ' + Math.round(32 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('Time\'s up!', canvas.width / 2, canvas.height / 2 - 30);
     ctx.fillStyle = '#fff';
-    ctx.font = '18px sans-serif';
+    ctx.font = Math.round(18 * s) + 'px sans-serif';
     ctx.fillText('Tap to retry level ' + currentLevel, canvas.width / 2, canvas.height / 2 + 20);
     ctx.restore();
   }
 
   function drawGameWon() {
+    const s = hudScale();
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.85)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#c8e6c9';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = 'bold ' + Math.round(36 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('You won!', canvas.width / 2, canvas.height / 2 - 40);
     ctx.fillStyle = '#fff';
-    ctx.font = '20px sans-serif';
+    ctx.font = Math.round(20 * s) + 'px sans-serif';
     ctx.fillText('All 10 levels complete.', canvas.width / 2, canvas.height / 2);
     ctx.fillText('Tap to play again', canvas.width / 2, canvas.height / 2 + 45);
     ctx.restore();
@@ -707,6 +722,7 @@
   canvas.addEventListener('mousedown', onPointer);
 
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 100); });
 
   dogImage = new Image();
   dogImage.src = 'assets/dog.png';

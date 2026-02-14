@@ -14,6 +14,10 @@ html, body {
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
+  position: fixed;
+  inset: 0;
+  /* Safe area for notched phones */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 #gameCanvas {
@@ -22,16 +26,11 @@ html, body {
   height: 100%;
   object-fit: contain;
   background: #2d5a27;
+  touch-action: manipulation;
 }
 
-@media (orientation: landscape) {
-  #gameCanvas {
-    object-fit: contain;
-  }
-}
-
-@media (orientation: portrait) {
-  #gameCanvas {
-    object-fit: contain;
+@media (max-width: 480px) {
+  html, body {
+    font-size: 14px;
   }
 }
