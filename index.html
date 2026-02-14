@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#2d5a27">
-  <title>Zoeys Golf Adventures – Download</title>
+  <title>Zoey's Golf Adventures</title>
   <link rel="icon" href="icons/icon.svg">
   <link rel="apple-touch-icon" href="icons/icon.svg">
   <style>
@@ -38,14 +38,14 @@
     .tagline {
       font-size: 0.95rem;
       opacity: 0.9;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
       line-height: 1.4;
     }
     .btn {
       display: inline-block;
       width: 100%;
-      padding: 16px 24px;
-      font-size: 1.1rem;
+      padding: 18px 24px;
+      font-size: 1.2rem;
       font-weight: 600;
       color: #1b3d1a;
       background: #fff;
@@ -55,6 +55,7 @@
       cursor: pointer;
       transition: transform 0.15s, box-shadow 0.15s;
       -webkit-tap-highlight-color: transparent;
+      margin-bottom: 24px;
     }
     .btn:active {
       transform: scale(0.98);
@@ -62,28 +63,64 @@
     .btn:hover {
       box-shadow: 0 4px 20px rgba(255,255,255,0.4);
     }
+    .scores {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    .scores h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      opacity: 0.9;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .scores-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      padding: 4px 0;
+    }
+    .scores-row span:last-child { color: #ffd700; font-weight: 600; }
     .instructions {
-      margin-top: 24px;
-      padding-top: 20px;
+      margin-top: 8px;
+      padding-top: 16px;
       border-top: 1px solid rgba(255,255,255,0.2);
-      font-size: 0.8rem;
-      opacity: 0.85;
+      font-size: 0.75rem;
+      opacity: 0.8;
       line-height: 1.5;
     }
-    .instructions strong { display: block; margin-bottom: 6px; }
+    .instructions strong { display: block; margin-bottom: 4px; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Zoey's Golf Adventures</h1>
-    <p class="tagline">Collect golf balls with Zoey the labradoodle. 10 levels, enemies, and a timer. Tap to play.</p>
-    <a href="game.html" class="btn">Download / Play</a>
+    <p class="tagline">Collect balls with Zoey. Endless levels, enemies, timer. Tap to play.</p>
+    <a href="game.html" class="btn">Play</a>
+    <div class="scores" id="scores">
+      <h3>Local high scores</h3>
+      <div class="scores-row"><span>Best level</span><span id="bestLevel">—</span></div>
+    </div>
     <div class="instructions">
-      <strong>Install on iPhone</strong>
-      Open the game, then tap <strong>Share</strong> (square with arrow) → <strong>Add to Home Screen</strong>. The game will appear on your home screen like an app.
+      <strong>Add to Home Screen</strong>
+      Share → Add to Home Screen for full-screen play.
+      <br><br>
+      <strong>iPhone sound</strong>
+      Turn off the mute switch (above volume) for game sounds.
     </div>
   </div>
   <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('zoeyGolfScores');
+        var data = s ? JSON.parse(s) : {};
+        var best = data.bestLevel || 0;
+        document.getElementById('bestLevel').textContent = best > 0 ? best : '—';
+      } catch (_) {}
+    })();
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
     }

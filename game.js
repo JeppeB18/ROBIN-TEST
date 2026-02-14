@@ -6,6 +6,8 @@
   const DOG_SPEED = 3.2;
   const DOG_RADIUS = 22;
   const BALL_RADIUS = 8;
+  const TIME_BALL_RADIUS = 9;
+  const TIME_BALL_BONUS = 10;
   const BASKET_RADIUS = 45;
   const ENEMY_RADIUS = 18;
   const ENEMY_SPEED = 2.1;
@@ -34,6 +36,7 @@
   const canvas = document.getElementById('gameCanvas');
   const ctx = canvas.getContext('2d');
   let grassCache = null;
+  let heroImg = null;
 
   let scale = 1;
   let offsetX = 0;
@@ -51,30 +54,53 @@
   };
 
   let balls = [];
+  let timeBalls = [];
   let trees = [];
   let enemies = [];
   let particles = [];
   let ballsInBasket = 0;
   let currentLevel = 1;
   let activeLevelConfig = LEVELS[0];
-  const levelRetries = new Array(NUM_LEVELS).fill(0);
+  let levelRetries = {};
   let levelTimeLimit = 0;
   let levelStartTime = 0;
   let lastFrameTime = Date.now();
   let gamePhase = 'title';
-  let levelCompleteUntil = 0;
-  let levelCompleteData = { timeRemaining: 0, bestRemaining: 0 };
+  let levelCompleteData = { timeRemaining: 0, previousBest: 0 };
   let screenShake = 0;
   let pauseBtnRect = { x: 0, y: 0, w: 44, h: 44 };
 
   const basket = { x: WORLD_W / 2, y: WORLD_H / 2 };
 
   let audioCtx = null;
+  let audioUnlocked = false;
   function initAudio() {
     if (audioCtx) return;
     try {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     } catch (_) {}
+  }
+  function unlockAudio(cb) {
+    initAudio();
+    if (!audioCtx) { if (cb) cb(); return; }
+    if (audioUnlocked && audioCtx.state === 'running') { if (cb) cb(); return; }
+    audioCtx.resume().then(function () {
+      if (!audioUnlocked) {
+        try {
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.connect(g);
+          g.connect(audioCtx.destination);
+          osc.frequency.value = 100;
+          g.gain.setValueAtTime(0.001, audioCtx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.01);
+          osc.start(audioCtx.currentTime);
+          osc.stop(audioCtx.currentTime + 0.01);
+        } catch (_) {}
+        audioUnlocked = true;
+      }
+      if (cb) cb();
+    }).catch(function () { if (cb) cb(); });
   }
   function playTone(freq, duration, type) {
     if (!audioCtx) return;
@@ -92,8 +118,7 @@
     } catch (_) {}
   }
   function playSound(name) {
-    initAudio();
-    if (!audioCtx || audioCtx.state === 'suspended') return;
+    if (!audioCtx || (!audioUnlocked && audioCtx.state === 'suspended')) return;
     if (name === 'collect') {
       playTone(880, 0.08, 'sine');
       playTone(1320, 0.06, 'sine');
@@ -112,12 +137,6 @@
     } else if (name === 'gameOver') {
       playTone(200, 0.2, 'sawtooth');
       playTone(180, 0.25, 'square');
-    } else if (name === 'gameWon') {
-      playTone(523, 0.15, 'sine');
-      playTone(659, 0.15, 'sine');
-      playTone(784, 0.15, 'sine');
-      playTone(1047, 0.2, 'sine');
-      playTone(1319, 0.25, 'sine');
     }
   }
 
@@ -129,7 +148,6 @@
       else if (type === 'hit') navigator.vibrate([30, 20, 30]);
       else if (type === 'levelComplete') navigator.vibrate([20, 30, 20, 30]);
       else if (type === 'gameOver') navigator.vibrate([50, 30, 50]);
-      else if (type === 'gameWon') navigator.vibrate([20, 20, 20, 40, 40]);
     } catch (_) {}
   }
 
@@ -148,10 +166,13 @@
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(scores)); } catch (_) {}
     }
   }
-  function saveWin() {
+  function saveBestLevel(level) {
     const scores = loadScores();
-    scores.totalWins = (scores.totalWins || 0) + 1;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(scores)); } catch (_) {}
+    const prev = scores.bestLevel || 0;
+    if (level > prev) {
+      scores.bestLevel = level;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(scores)); } catch (_) {}
+    }
   }
 
   function resize() {
@@ -167,7 +188,10 @@
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
     }
-    scale = Math.min(pw / WORLD_W, ph / WORLD_H);
+    const useCover = isMobile;
+    scale = useCover
+      ? Math.max(pw / WORLD_W, ph / WORLD_H)
+      : Math.min(pw / WORLD_W, ph / WORLD_H);
     offsetX = (pw - WORLD_W * scale) / 2;
     offsetY = (ph - WORLD_H * scale) / 2;
   }
@@ -236,7 +260,7 @@
 
   function initBalls() {
     const cfg = getLevelConfig();
-    const need = Math.min(cfg.ballsRequired + 15, 65);
+    const need = Math.min(cfg.ballsRequired + 15, 85);
     balls = [];
     const padding = 75;
     let attempts = 0;
@@ -247,6 +271,34 @@
       const y = padding + Math.random() * (WORLD_H - 2 * padding);
       if (isValidBallPosition(x, y, BALL_RADIUS)) {
         balls.push({ x, y, collected: false });
+      }
+    }
+  }
+
+  function isValidTimeBallPosition(x, y) {
+    if (!isValidBallPosition(x, y, TIME_BALL_RADIUS)) return false;
+    const minDist = BALL_RADIUS + TIME_BALL_RADIUS + 6;
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      if (!b.collected && dist(x, y, b.x, b.y) < minDist) return false;
+    }
+    for (let i = 0; i < timeBalls.length; i++) {
+      if (dist(x, y, timeBalls[i].x, timeBalls[i].y) < TIME_BALL_RADIUS * 2 + 8) return false;
+    }
+    return true;
+  }
+
+  function initTimeBalls() {
+    timeBalls = [];
+    const count = 2 + Math.min(2, Math.floor(currentLevel / 4));
+    const padding = 80;
+    let attempts = 0;
+    while (timeBalls.length < count && attempts < 200) {
+      attempts++;
+      const x = padding + Math.random() * (WORLD_W - 2 * padding);
+      const y = padding + Math.random() * (WORLD_H - 2 * padding);
+      if (isValidTimeBallPosition(x, y)) {
+        timeBalls.push({ x, y });
       }
     }
   }
@@ -338,11 +390,12 @@
   function startLevel() {
     const base = LEVELS[Math.min(currentLevel - 1, LEVELS.length - 1)];
     const retries = levelRetries[currentLevel - 1] || 0;
+    const extra = Math.max(0, currentLevel - LEVELS.length);
     activeLevelConfig = {
-      ballsRequired: base.ballsRequired,
-      timeLimit: base.timeLimit + Math.min(20, retries * 4),
-      treeCount: Math.max(3, base.treeCount - Math.floor(retries / 3)),
-      enemyCount: Math.max(0, base.enemyCount - Math.floor(retries / 2))
+      ballsRequired: base.ballsRequired + extra * 5,
+      timeLimit: Math.max(28, base.timeLimit - extra * 2 + Math.min(20, retries * 4)),
+      treeCount: Math.min(18, Math.max(3, base.treeCount + Math.floor(extra / 2) - Math.floor(retries / 3))),
+      enemyCount: Math.min(8, Math.max(0, base.enemyCount + Math.floor(extra / 3) - Math.floor(retries / 2)))
     };
     const cfg = getLevelConfig();
     dog.x = DOG_START_X;
@@ -364,6 +417,7 @@
       const enemyCount = Math.max(0, cfg.enemyCount - (attempts > 10 ? 1 : 0));
       initTrees(treeCount);
       initBalls();
+      initTimeBalls();
       initEnemies(enemyCount);
       generated = balls.length >= cfg.ballsRequired && isLevelLayoutPlayable(cfg);
     }
@@ -371,6 +425,7 @@
       // Hard fallback: keep map sparse so level always remains finishable.
       initTrees(2);
       initBalls();
+      initTimeBalls();
       initEnemies(Math.max(0, cfg.enemyCount - 2));
     }
     gamePhase = 'playing';
@@ -501,6 +556,20 @@
     });
   }
 
+  function collectTimeBalls() {
+    for (let i = timeBalls.length - 1; i >= 0; i--) {
+      const tb = timeBalls[i];
+      if (circleVsCircle(dog.x, dog.y, DOG_RADIUS, tb.x, tb.y, TIME_BALL_RADIUS)) {
+        levelStartTime += TIME_BALL_BONUS * 1000;
+        spawnParticles(tb.x, tb.y, 12, '#00bcd4');
+        spawnParticles(tb.x, tb.y, 8, '#fff');
+        playSound('collect');
+        haptic('collect');
+        timeBalls.splice(i, 1);
+      }
+    }
+  }
+
   function depositBalls() {
     if (!circleVsCircle(dog.x, dog.y, DOG_RADIUS, basket.x, basket.y, BASKET_RADIUS)) return;
     if (dog.carried > 0) {
@@ -516,9 +585,9 @@
         const prevBest = loadScores().bestTimeRemaining[currentLevel] || 0;
         levelCompleteData = { timeRemaining: timeRem, previousBest: prevBest };
         saveScore(currentLevel, timeRem);
+        saveBestLevel(currentLevel);
         levelRetries[currentLevel - 1] = 0;
         gamePhase = 'levelComplete';
-        levelCompleteUntil = Date.now() + 2200;
         spawnParticles(basket.x, basket.y, 30, '#4caf50');
         playSound('levelComplete');
         haptic('levelComplete');
@@ -657,34 +726,86 @@
     });
   }
 
-  function drawEnemies() {
-    const now = Date.now();
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    enemies.forEach(e => {
+  function drawTimeBalls() {
+    const t = Date.now() * 0.004;
+    timeBalls.forEach(tb => {
+      const pulse = 0.92 + 0.08 * Math.sin(t + tb.x * 0.1);
+      const r = TIME_BALL_RADIUS * pulse;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath();
-      ctx.arc(Math.floor(e.x), Math.floor(e.y + 3), ENEMY_RADIUS, 0, Math.PI * 2);
+      ctx.arc(Math.floor(tb.x), Math.floor(tb.y + 2), r, 0, Math.PI * 2);
       ctx.fill();
-    });
-    ctx.strokeStyle = '#7f0000';
-    ctx.lineWidth = 2;
-    enemies.forEach(e => {
-      const pulse = 0.9 + 0.1 * Math.sin(now * 0.005);
-      const r = ENEMY_RADIUS * pulse;
-      const grad = ctx.createRadialGradient(e.x - 4, e.y - 4, 2, e.x, e.y, r);
-      grad.addColorStop(0, '#ff5252');
-      grad.addColorStop(0.6, '#d32f2f');
-      grad.addColorStop(1, '#b71c1c');
+      const grad = ctx.createRadialGradient(tb.x - 2, tb.y - 2, 1, tb.x, tb.y, r);
+      grad.addColorStop(0, '#e0f7fa');
+      grad.addColorStop(0.5, '#00bcd4');
+      grad.addColorStop(1, '#0097a7');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(Math.floor(e.x), Math.floor(e.y), r, 0, Math.PI * 2);
+      ctx.arc(Math.floor(tb.x), Math.floor(tb.y), r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#006064';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('+10', Math.floor(tb.x), Math.floor(tb.y));
     });
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    enemies.forEach(e => ctx.fillText('!', Math.floor(e.x), Math.floor(e.y)));
+  }
+
+  function drawGolfer(ex, ey, vx, vy) {
+    const r = ENEMY_RADIUS;
+    const dx = Math.floor(ex);
+    const dy = Math.floor(ey);
+    const angle = (vx !== 0 || vy !== 0) ? Math.atan2(vy, vx) : 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(dx, dy + 4, r * 0.9, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.rotate(angle);
+    ctx.fillStyle = '#e3f2fd';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.15, r * 0.5, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#90caf9';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#ffcc80';
+    ctx.beginPath();
+    ctx.arc(0, -r * 0.5, r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#8d6e63';
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.62, r * 0.3, r * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#3e2723';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(r * 0.2, r * 0.05);
+    ctx.lineTo(r * 1.05, -r * 0.35);
+    ctx.stroke();
+    ctx.fillStyle = '#1b5e20';
+    ctx.beginPath();
+    ctx.arc(r * 1.1, -r * 0.4, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2e7d32';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawEnemies() {
+    const now = Date.now();
+    const pulse = 0.98 + 0.04 * Math.sin(now * 0.004);
+    enemies.forEach(e => {
+      const r = ENEMY_RADIUS * pulse;
+      const vx = e.vx || 0;
+      const vy = e.vy || 0;
+      drawGolfer(e.x, e.y, vx, vy);
+    });
   }
 
   function drawDog() {
@@ -693,35 +814,91 @@
     const r = DOG_RADIUS * 1.15;
     const dx = Math.floor(dog.x);
     const dy = Math.floor(dog.y);
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
-    ctx.ellipse(dx, dy + 3, r, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(dx, dy + 4, r * 0.95, r * 0.45, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.save();
     ctx.beginPath();
     ctx.arc(dx, dy, r, 0, Math.PI * 2);
     ctx.closePath();
     ctx.clip();
-    ctx.fillStyle = '#1a1a1a';
+    const furGrad = ctx.createRadialGradient(dx - r * 0.35, dy - r * 0.35, 0, dx, dy, r * 1.2);
+    furGrad.addColorStop(0, '#3d3528');
+    furGrad.addColorStop(0.15, '#2a2520');
+    furGrad.addColorStop(0.35, '#1a1612');
+    furGrad.addColorStop(0.6, '#0d0a08');
+    furGrad.addColorStop(0.85, '#080605');
+    furGrad.addColorStop(1, '#030202');
+    ctx.fillStyle = furGrad;
     ctx.beginPath();
     ctx.arc(dx, dy, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#d4a574';
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + dx * 0.015;
+      const curlX = dx + Math.cos(a) * r * 0.6;
+      const curlY = dy + Math.sin(a) * r * 0.6;
+      const curlR = 2.5 + (i % 3) * 0.5;
+      const cg = ctx.createRadialGradient(curlX, curlY, 0, curlX, curlY, curlR);
+      cg.addColorStop(0, 'rgba(95,80,65,0.22)');
+      cg.addColorStop(0.5, 'rgba(45,38,28,0.1)');
+      cg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath();
+      ctx.arc(Math.floor(curlX), Math.floor(curlY), curlR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const noseGrad = ctx.createRadialGradient(dx - 2, dy + r * 0.08, 0, dx, dy + r * 0.1, r * 0.2);
+    noseGrad.addColorStop(0, '#4a4a4a');
+    noseGrad.addColorStop(0.3, '#1e1e1e');
+    noseGrad.addColorStop(0.7, '#0a0a0a');
+    noseGrad.addColorStop(1, '#050505');
+    ctx.fillStyle = noseGrad;
     ctx.beginPath();
-    ctx.ellipse(dx, Math.floor(dy + r * 0.4), r * 0.35, r * 0.25, 0, 0, Math.PI * 2);
+    ctx.arc(dx, Math.floor(dy + r * 0.1), r * 0.13, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2d2d2d';
+    ctx.fillStyle = 'rgba(120,120,120,0.4)';
     ctx.beginPath();
-    ctx.arc(Math.floor(dx - r * 0.25), Math.floor(dy - r * 0.15), r * 0.12, 0, Math.PI * 2);
-    ctx.arc(Math.floor(dx + r * 0.25), Math.floor(dy - r * 0.15), r * 0.12, 0, Math.PI * 2);
+    ctx.arc(Math.floor(dx - 1), Math.floor(dy + r * 0.05), 1.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
+    const chinGrad = ctx.createRadialGradient(dx, dy + r * 0.4, 0, dx, dy + r * 0.4, r * 0.16);
+    chinGrad.addColorStop(0, '#fffef9');
+    chinGrad.addColorStop(0.35, '#f0ebe0');
+    chinGrad.addColorStop(0.65, '#e0d8c8');
+    chinGrad.addColorStop(1, 'rgba(200,190,175,0.4)');
+    ctx.fillStyle = chinGrad;
     ctx.beginPath();
-    ctx.arc(dx, Math.floor(dy + r * 0.1), r * 0.15, 0, Math.PI * 2);
+    ctx.ellipse(dx, Math.floor(dy + r * 0.42), r * 0.14, r * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const eyeGrad = ctx.createRadialGradient(dx - r * 0.25, dy - r * 0.15, 0, dx - r * 0.25, dy - r * 0.15, r * 0.15);
+    eyeGrad.addColorStop(0, '#1a1510');
+    eyeGrad.addColorStop(0.6, '#0a0806');
+    eyeGrad.addColorStop(1, '#050403');
+    ctx.fillStyle = eyeGrad;
+    ctx.beginPath();
+    ctx.arc(Math.floor(dx - r * 0.28), Math.floor(dy - r * 0.12), r * 0.1, 0, Math.PI * 2);
+    ctx.arc(Math.floor(dx + r * 0.28), Math.floor(dy - r * 0.12), r * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.arc(Math.floor(dx - r * 0.26), Math.floor(dy - r * 0.14), 1.2, 0, Math.PI * 2);
+    ctx.arc(Math.floor(dx + r * 0.3), Math.floor(dy - r * 0.14), 1.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#b8c4c4';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(dx, dy, r * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#bfff00';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(dx, dy, r * 0.9, -Math.PI * 0.4, Math.PI * 0.4);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(dx, dy, r, 0, Math.PI * 2);
     ctx.stroke();
@@ -815,81 +992,130 @@
 
   function drawTitle() {
     const s = hudScale();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
     const titleSize = Math.round(36 * s);
     const bodySize = Math.round(18 * s);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const hasHero = heroImg && heroImg.complete && heroImg.naturalWidth;
+    if (hasHero) {
+      const imgW = heroImg.naturalWidth;
+      const imgH = heroImg.naturalHeight;
+      const maxW = Math.min(canvas.width * 0.75, 300);
+      const maxH = Math.min(canvas.height * 0.5, 340);
+      const imgScale = Math.min(maxW / imgW, maxH / imgH);
+      const w = imgW * imgScale;
+      const h = imgH * imgScale;
+      const x = cx - w / 2;
+      const y = cy - h / 2 - 70;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x - 6, y - 6, w + 12, h + 12, 14);
+      } else {
+        ctx.rect(x - 6, y - 6, w + 12, h + 12);
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(129,199,132,0.5)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.drawImage(heroImg, x, y, w, h);
+    }
     ctx.fillStyle = '#fff';
     ctx.font = 'bold ' + titleSize + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText("Zoey's Golf Adventures", canvas.width / 2, canvas.height / 2 - 50);
+    ctx.fillText("Zoey's Golf Adventures", cx, hasHero ? cy + 85 : cy - 50);
     ctx.font = bodySize + 'px sans-serif';
-    ctx.fillText('Collect balls. Drop in basket. Avoid the enemies!', canvas.width / 2, canvas.height / 2 - 10);
-    ctx.fillText('10 levels. Tap to start.', canvas.width / 2, canvas.height / 2 + 30);
+    ctx.fillText('Collect balls. Drop in basket. Avoid the enemies!', cx, hasHero ? cy + 118 : cy - 10);
+    ctx.fillText('Endless levels. Tap to start.', cx, hasHero ? cy + 148 : cy + 30);
     ctx.restore();
   }
 
   function drawLevelComplete() {
     const s = hudScale();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const cardW = Math.min(320, canvas.width - 48);
+    const cardH = 200;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#81c784';
-    ctx.font = 'bold ' + Math.round(28 * s) + 'px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.strokeStyle = 'rgba(129,199,132,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(cardX, cardY, cardW, cardH, 16);
+    } else {
+      ctx.rect(cardX, cardY, cardW, cardH);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#66bb6a';
+    ctx.font = 'bold ' + Math.round(24 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Level ' + currentLevel + ' complete!', canvas.width / 2, canvas.height / 2 - 30);
+    ctx.fillText('LEVEL ' + currentLevel + ' COMPLETE', cx, cardY + 36);
     ctx.fillStyle = '#fff';
-    ctx.font = Math.round(16 * s) + 'px sans-serif';
-    ctx.fillText(currentLevel < NUM_LEVELS ? 'Next level in 2 sec...' : 'You won!', canvas.width / 2, canvas.height / 2 + 15);
+    ctx.font = Math.round(18 * s) + 'px sans-serif';
+    ctx.fillText(Math.round(levelCompleteData.timeRemaining) + ' seconds left', cx, cardY + 72);
     const isNewBest = levelCompleteData.previousBest === 0 || levelCompleteData.timeRemaining >= levelCompleteData.previousBest;
-    ctx.font = Math.round(14 * s) + 'px sans-serif';
-    ctx.fillText(Math.round(levelCompleteData.timeRemaining) + 's left', canvas.width / 2, canvas.height / 2 + 45);
     if (isNewBest) {
-      ctx.fillStyle = '#ffd700';
-      ctx.fillText('New best!', canvas.width / 2, canvas.height / 2 + 65);
+      ctx.fillStyle = '#ffd54f';
+      ctx.font = 'bold ' + Math.round(14 * s) + 'px sans-serif';
+      ctx.fillText('★ New best!', cx, cardY + 100);
     }
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = Math.round(15 * s) + 'px sans-serif';
+    ctx.fillText('Tap for next level', cx, cardY + cardH - 44);
+    ctx.fillStyle = 'rgba(129,199,132,0.4)';
+    ctx.font = Math.round(12 * s) + 'px sans-serif';
+    ctx.fillText('Level ' + currentLevel, cx, cardY + cardH - 22);
     ctx.restore();
   }
 
   function drawGameOver() {
     const s = hudScale();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const cardW = Math.min(300, canvas.width - 48);
+    const cardH = 160;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ff6b6b';
-    ctx.font = 'bold ' + Math.round(32 * s) + 'px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = 'rgba(239,83,80,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(cardX, cardY, cardW, cardH, 16);
+    } else {
+      ctx.rect(cardX, cardY, cardW, cardH);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ef5350';
+    ctx.font = 'bold ' + Math.round(26 * s) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Time\'s up!', canvas.width / 2, canvas.height / 2 - 30);
+    ctx.fillText('Time\'s up!', cx, cardY + 48);
     ctx.fillStyle = '#fff';
-    ctx.font = Math.round(18 * s) + 'px sans-serif';
-    ctx.fillText('Tap to retry level ' + currentLevel, canvas.width / 2, canvas.height / 2 + 20);
-    ctx.restore();
-  }
-
-  function drawGameWon() {
-    const s = hudScale();
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#81c784';
-    ctx.font = 'bold ' + Math.round(36 * s) + 'px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('You won!', canvas.width / 2, canvas.height / 2 - 40);
-    ctx.fillStyle = '#fff';
-    ctx.font = Math.round(20 * s) + 'px sans-serif';
-    ctx.fillText('All 10 levels complete.', canvas.width / 2, canvas.height / 2);
-    const wins = loadScores().totalWins || 0;
-    ctx.fillText('Total wins: ' + wins, canvas.width / 2, canvas.height / 2 + 30);
-    ctx.fillText('Tap to play again', canvas.width / 2, canvas.height / 2 + 55);
+    ctx.font = Math.round(15 * s) + 'px sans-serif';
+    ctx.fillText('Tap to retry level ' + currentLevel, cx, cardY + 92);
+    const best = loadScores().bestLevel || 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = Math.round(12 * s) + 'px sans-serif';
+    ctx.fillText('Level ' + currentLevel + (best > 0 ? '  •  Best: ' + best : ''), cx, cardY + cardH - 28);
     ctx.restore();
   }
 
@@ -908,6 +1134,7 @@
     drawTrees();
     drawBasket();
     drawBalls();
+    drawTimeBalls();
     drawParticles();
     drawEnemies();
     drawDog();
@@ -916,7 +1143,6 @@
     if (gamePhase === 'title') drawTitle();
     else if (gamePhase === 'levelComplete') drawLevelComplete();
     else if (gamePhase === 'gameOver') drawGameOver();
-    else if (gamePhase === 'gameWon') drawGameWon();
     else if (gamePhase === 'paused') drawPauseOverlay();
   }
 
@@ -927,20 +1153,9 @@
     }
     if (gamePhase === 'levelComplete') {
       lastFrameTime = Date.now();
-      if (Date.now() >= levelCompleteUntil) {
-        if (currentLevel >= NUM_LEVELS) {
-          saveWin();
-          playSound('gameWon');
-          haptic('gameWon');
-          gamePhase = 'gameWon';
-        } else {
-          currentLevel++;
-          startLevel();
-        }
-      }
       return;
     }
-    if (gamePhase === 'gameOver' || gamePhase === 'gameWon') {
+    if (gamePhase === 'gameOver') {
       lastFrameTime = Date.now();
       return;
     }
@@ -970,6 +1185,7 @@
     moveDogTowardTarget();
     updateEnemies();
     collectBalls();
+    collectTimeBalls();
     depositBalls();
     updateParticles();
   }
@@ -999,23 +1215,29 @@
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
     if (gamePhase === 'title') {
-      initAudio();
-      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
-      tryFullscreen();
-      gamePhase = 'playing';
-      currentLevel = 1;
+      var started = false;
+      function doStart() {
+        if (started) return;
+        started = true;
+        tryFullscreen();
+        gamePhase = 'playing';
+        currentLevel = 1;
+        startLevel();
+      }
+      unlockAudio(doStart);
+      setTimeout(doStart, 800);
+      return;
+    }
+    if (gamePhase === 'levelComplete') {
+      currentLevel++;
       startLevel();
+      gamePhase = 'playing';
       return;
     }
     if (gamePhase === 'gameOver') {
       levelRetries[currentLevel - 1] = (levelRetries[currentLevel - 1] || 0) + 1;
       startLevel();
       gamePhase = 'playing';
-      return;
-    }
-    if (gamePhase === 'gameWon') {
-      currentLevel = 1;
-      startLevel();
       return;
     }
     if (gamePhase === 'paused') {
@@ -1038,11 +1260,14 @@
 
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', function () { setTimeout(resize, 150); });
+  window.addEventListener('focus', function () { setTimeout(resize, 100); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', resize);
   }
-
   resize();
+  setTimeout(resize, 100);
   gamePhase = 'title';
+  heroImg = new Image();
+  heroImg.src = './assets/hero.png';
   gameLoop();
 })();

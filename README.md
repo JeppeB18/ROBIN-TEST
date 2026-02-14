@@ -1,6 +1,6 @@
 # Zoey's Golf Adventures
 
-A top-down web game: guide Zoey the labradoodle around a grassy course to collect golf balls and deliver them to the basket. Complete 10 levels, each with a timer and more obstacles—including annoying enemies that chase you and make you drop balls!
+A top-down web game: guide Zoey the labradoodle around a grassy course to collect golf balls and deliver them to the basket. Endless levels that get progressively harder—each with a timer and more obstacles, including enemies that chase you and make you drop balls. Play until you run out of time!
 
 ## How to Run Locally
 
@@ -18,10 +18,10 @@ A top-down web game: guide Zoey the labradoodle around a grassy course to collec
 
 - **Tap or click** where you want the dog to go. The dog runs toward that point.
 - Run over **golf balls** to pick them up and take them to the **basket in the center** to drop them off.
-- **10 levels**: each level requires more balls and has less time. Finish all 10 to win.
+- **Endless levels**: each level requires more balls and has less time. The game continues and gets harder until you run out of time.
 - **Red enemies** chase the dog; if they catch you, you drop up to 3 balls and are briefly stunned. Avoid them!
 - **Trees** (cone-shaped conifers) slow you down; go around them to keep your speed.
-- If the **timer** hits zero, the level ends—tap to retry.
+- If the **timer** hits zero, the game ends—tap to retry from that level.
 
 ## Play on Your iPhone
 

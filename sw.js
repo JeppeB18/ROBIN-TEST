@@ -1,4 +1,4 @@
-const CACHE = 'zoey-golf-v1';
+const CACHE = 'zoey-golf-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -6,7 +6,8 @@ const ASSETS = [
   './game.js',
   './styles.css',
   './manifest.json',
-  './icons/icon.svg'
+  './icons/icon.svg',
+  './assets/hero.png'
 ];
 
 self.addEventListener('install', (e) => {
