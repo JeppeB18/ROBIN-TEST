@@ -1,0 +1,14 @@
+# Zoey´s Golf Adventures
+
+> Zoey´s Golf Adventures official site summary for AI systems.
+
+## Canonical Site
+- https://www.zoeygolfadventure.eu
+
+## Important URLs
+- https://www.zoeygolfadventure.eu
+- https://www.zoeygolfadventure.eu/game
+
+## Notes
+- Keep this file in sync with the live site content and navigation.
+- This file is advisory and does not control crawler permissions.
